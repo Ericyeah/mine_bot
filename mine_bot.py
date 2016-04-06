@@ -4,6 +4,7 @@ import time
 import re
 import csv
 import random
+import argparse 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 
@@ -19,10 +20,11 @@ class bcolors:
 
 global driver
 global bankroll
+
 global wealth_record 
 global wins
 
-def main():
+def main(num_bombs, num_clicks, percent):
 	print 'Begin'
 
 	# set up global vars
@@ -34,7 +36,6 @@ def main():
 	bankroll = 25000
 	wealth_record = [bankroll]
 	wins = []
-	numbombs = 1
 
 	# Go to satoshi mines
 	print 'Going to satoshi mines...'
@@ -43,96 +44,37 @@ def main():
 	# click start playing button
 	driver.find_element(By.CLASS_NAME, 'primary_btn').click()
 	# set mines to 1
-	driver.find_element(By.XPATH, '//button[text()="{}"]'.format(numbombs)).click()
+	driver.find_element(By.XPATH, '//button[text()="{}"]'.format(num_bombs)).click()
 	# start playing
-	play()
+	play(num_clicks, percent)
 
-def play():
-	limit = 300
+def play(num_clicks, percent):
+	limit = 500
 	i = 0
 
-	while(i < limit):
-		bet = set_bet()
+	while (i < limit):
+		bet = set_bet(percent)
 		# click play
-		driver.find_element(By.XPATH, '//button[text()="Play"]').click()
+		time.sleep(0.2)
+		try_to_click(By.XPATH, '//button[text()="Play"]')
 
-		click_buttons()
+		time.sleep(0.175)
+		round_res = click_buttons(num_clicks)
 
 		# round over, get stats 
-		time.sleep(0.55)
-		winner = end_round(bet)
+		winner = end_round(round_res)
 
 		# cashout if win 
 		if winner:
-			try:
-				driver.find_element(By.XPATH, '//button[text()="Cashout"]').click()
-			except Exception:
-				time.sleep(0.5)
-				driver.find_element(By.XPATH, '//button[text()="Cashout"]').click()
+			try_to_click(By.XPATH, '//button[text()="Cashout"]')
 		i += 1
 
 	driver.quit()
 
-# prints win / loss info for each round 
-# update statistics
-# return true if winner, false if loser 
-def end_round(winner):
-	global bankroll
-	global wins 
-	global wealth_record
-
-	# We lost :(
- 	try:
-	 	loser = driver.find_element(By.CLASS_NAME, 'messages').find_element(By.CLASS_NAME, 'bomb').text
-	 	loser = loser.replace(',','')
-	 	losings = [int(s) for s in loser.split() if s.isdigit()][1]
-	 	print bcolors.FAIL + "Lost " + str(losings)
-
-	 	bankroll = bankroll - losings
-	 	wealth_record.append(bankroll)
-	 	print 'Total: ' + str(bankroll) + bcolors.ENDC
-	 	wins.append(False)
-	 	return False 
-
- 	# We won :)
- 	except Exception:
- 		winner = driver.find_element(By.CLASS_NAME, 'messages').find_element(By.CLASS_NAME, 'find').text
- 		winner = winner.replace(',','')
- 		winnings = [int(s) for s in winner.split() if s.isdigit()][0]
- 		print bcolors.OKGREEN + 'Won ' + str(winnings) 
-
- 		bankroll = bankroll + winnings
- 		wealth_record.append(bankroll)
- 		print 'Total: ' + str(bankroll) + bcolors.ENDC
- 		wins.append(True)
- 		return True 
-
-def check_click():
-	global bankroll
-
- 	win = False
- 	try:
-		result = driver.find_element(By.CLASS_NAME, 'messages').find_element(By.CLASS_NAME, 'bomb').text
- 	except Exception:
- 		result = driver.find_element(By.CLASS_NAME, 'messages').find_element(By.CLASS_NAME, 'find').text
- 		win = True
-
- 	result = result.replace(',','')
-
- 	if not win:
- 		swing = [int(s) for s in result.split() if s.isdigit()][1] * -1
- 	else:
- 		swing = [int(s) for s in winner.split() if s.isdigit()][0]
-
- 	bankroll = bankroll + swing
-
- 	return swing
-
 # sets the bet for the round based on current bankroll 
 # TODO: Set as cmdline arg
-def set_bet():
+def set_bet(percent):
 	max_bet = 1000000
-	percent = 0.1
 
 	bet = (bankroll * percent)
 	bet = round(bet,0)
@@ -146,30 +88,87 @@ def set_bet():
 	bet_box.send_keys(bet)
 	return bet
 
-def click_buttons():
-	to_click = 5
-	guessed = []
+# prints win / loss info for each round 
+# update statistics
+def end_round(result):
+	global bankroll
+	global wins 
+	global wealth_record
 
-	for i in range(to_click):
+	bankroll += result
+	winna = result > 0
+
+	# winna!
+	if winna:
+		print bcolors.OKGREEN + 'Won ' + str(result)
+		wins.append(True)
+	# losa!
+	else:
+		print bcolors.FAIL + "Lost " + str(result)
+		wins.append(False)
+
+	print 'Total: ' + str(bankroll) + bcolors.ENDC
+	wealth_record.append(bankroll)
+	return winna
+
+def check_click():
+	global bankroll
+ 	win = False
+
+ 	time.sleep(0.2)
+ 	while 1:
+	 	try:
+			result = driver.find_element(By.CLASS_NAME, 'messages').find_element(By.CLASS_NAME, 'bomb').text
+			break
+	 	except Exception:
+	 		try:
+	 			result = driver.find_element(By.CLASS_NAME, 'messages').find_element(By.CLASS_NAME, 'find').text
+	 			win = True
+	 			break
+	 		except Exception:
+	 			pass
+
+ 	result = result.replace(',','')
+
+ 	if win:
+ 		swing = [int(s) for s in result.split() if s.isdigit()][0] 
+ 	else:
+ 		swing = [int(s) for s in result.split() if s.isdigit()][1] * -1
+
+ 	return swing
+
+def click_buttons(num_clicks):
+	guessed = []
+	running_total = 0
+
+	for i in xrange(num_clicks):
 
 		rand = random.randint(1, 25)
 		while rand in guessed:
 			rand = random.randint(1, 25)
 		guessed.append(rand)
 
-		time.sleep(0.35)
+		try_to_click(By.XPATH, '//ul[@class="board"]/li[{}]'.format(rand))
+
+		last_click = check_click()
+		if last_click < 0:
+			running_total = last_click
+			break
+		else:
+			running_total += last_click
+
+	return running_total
+
+# works around exceptions and time.sleep() by trying
+# to get elements in a while loop
+def try_to_click(by, desc):
+	time.sleep(0.2)
+	while 1:
 		try:
-			driver.find_element(By.XPATH, '//ul[@class="board"]/li[{}]'.format(rand)).click()
-
+			driver.find_element(by, desc).click()
+			break
 		except Exception:
-			time.sleep(0.8)
-			driver.find_element(By.XPATH, '//ul[@class="board"]/li[{}]'.format(rand)).click()
-
-		#last_click = check_click()
-		#if last_click < 0:
-		#	break
-
-	#end_round(last_click > 0)
+			pass
 
 def write_result():
 	with open('mine_results.csv', 'wb') as res:
@@ -178,4 +177,11 @@ def write_result():
 		wr.writerow(wealth_record)
 
 if __name__ == "__main__": 
-	main()
+	# parse cmdline args 
+	parser = argparse.ArgumentParser(description=
+		'Arg1 = num_bombs: 1, 3, 5, or 24, Arg2 = num_clicks, Arg3 = percent to bet each round')
+	parser.add_argument('integers', metavar='N', type=int, nargs='+')
+	parser.add_argument('percent', type=float)
+	args = parser.parse_args()
+
+	main(args.integers[0], args.integers[1], args.percent)
